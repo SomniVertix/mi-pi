@@ -39,6 +39,16 @@ Details:
 - A per-agent-run pass-cache prevents re-running the script when the model
   reads a `SKILL.md` right after a passing `/skill:` invocation
 
+## Tests
+
+```bash
+npm test
+```
+
+See [`tests/README.md`](tests/README.md) for details. Tests that depend on
+personal skills (e.g. `grilling`) skip gracefully when the skill isn't
+installed locally.
+
 ## Install
 
 Via pi packages:

@@ -1,5 +1,5 @@
 /**
- * skill-precheck: deterministic gating for skills.
+ * skill-precheck: deterministic gating and setup for skills.
  *
  * Skills opt in via SKILL.md frontmatter:
  *
@@ -12,8 +12,17 @@
  *
  *   { "prompt": "<raw input>", "cwd": "<cwd>", "skill": "<name>", "args": "<args>" }
  *
- * Exit 0 => skill proceeds. Nonzero => skill is blocked and stderr is shown
- * to the user (not the model).
+ * Exit codes and streams:
+ *   - Exit 0, empty stdout        => skill proceeds unchanged.
+ *   - Exit 0, non-empty stdout    => skill proceeds AND stdout is injected
+ *                                    into the model's context as
+ *                                    <skill-precheck-context skill="name">...
+ *                                    ...</skill-precheck-context>.
+ *                                    Use this to hand the model deterministic
+ *                                    setup output (session tracker paths,
+ *                                    generated IDs, prerequisites, etc.).
+ *   - Non-zero exit               => skill is blocked; stderr is shown to the
+ *                                    user (not the model).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
@@ -35,6 +44,12 @@ interface GatedSkill {
 interface PrecheckResult {
   ok: boolean;
   error: string;
+  /** stdout captured on success; empty on failure or when the script printed nothing. */
+  context: string;
+}
+
+function wrapContext(skillName: string, body: string): string {
+  return `<skill-precheck-context skill="${skillName}">\n${body.trimEnd()}\n</skill-precheck-context>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +166,11 @@ function runPrecheck(
 ): Promise<PrecheckResult> {
   return new Promise((resolve) => {
     if (!fs.existsSync(skill.script)) {
-      resolve({ ok: false, error: `precheck script not found: ${skill.script}` });
+      resolve({
+        ok: false,
+        error: `precheck script not found: ${skill.script}`,
+        context: "",
+      });
       return;
     }
     const child = spawn(PYTHON, [skill.script], { cwd, stdio: ["pipe", "pipe", "pipe"] });
@@ -168,15 +187,26 @@ function runPrecheck(
 
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      done({ ok: false, error: `precheck timed out after ${TIMEOUT_MS / 1000}s` });
+      done({
+        ok: false,
+        error: `precheck timed out after ${TIMEOUT_MS / 1000}s`,
+        context: "",
+      });
     }, TIMEOUT_MS);
 
     child.stdout.on("data", (d) => (stdout += d));
     child.stderr.on("data", (d) => (stderr += d));
-    child.on("error", (err) => done({ ok: false, error: `failed to run ${PYTHON}: ${err.message}` }));
+    child.on("error", (err) =>
+      done({ ok: false, error: `failed to run ${PYTHON}: ${err.message}`, context: "" }),
+    );
     child.on("close", (code) => {
-      if (code === 0) done({ ok: true, error: "" });
-      else done({ ok: false, error: stderr.trim() || stdout.trim() || `exit code ${code}` });
+      if (code === 0) done({ ok: true, error: "", context: stdout });
+      else
+        done({
+          ok: false,
+          error: stderr.trim() || stdout.trim() || `exit code ${code}`,
+          context: "",
+        });
     });
 
     child.stdin.write(JSON.stringify({ prompt, cwd, skill: skill.name, args }));
@@ -192,6 +222,8 @@ export default function (pi: ExtensionAPI) {
   let gated = new Map<string, GatedSkill>();
   let gatedByFile = new Map<string, GatedSkill>();
   const passed = new Set<string>(); // skills that passed during the current run
+  // toolCallId -> { skillName, context } for pending Read-tool injections (Path B)
+  const pendingRead = new Map<string, { skillName: string; context: string }>();
 
   const rebuild = (cwd: string) => {
     gated = discoverGatedSkills(cwd);
@@ -213,12 +245,21 @@ export default function (pi: ExtensionAPI) {
     const result = await runPrecheck(skill, event.text, m[2]?.trim() ?? "", ctx.cwd);
     ctx.ui.setStatus("skill-precheck", "");
 
-    if (result.ok) {
-      passed.add(skill.name);
-      return { action: "continue" as const };
+    if (!result.ok) {
+      ctx.ui.notify(`Skill "${skill.name}" blocked by precheck: ${result.error}`, "error");
+      return { action: "handled" as const };
     }
-    ctx.ui.notify(`Skill "${skill.name}" blocked by precheck: ${result.error}`, "error");
-    return { action: "handled" as const };
+
+    passed.add(skill.name);
+    if (!result.context.trim()) return { action: "continue" as const };
+
+    // Append the precheck context so pi's skill expansion delivers it as part
+    // of the `User: <args>` tail. The `/skill:name` prefix is preserved so
+    // expansion still fires.
+    return {
+      action: "transform" as const,
+      text: `${event.text}\n\n${wrapContext(skill.name, result.context)}`,
+    };
   });
 
   // Path B: model reading a gated skill's SKILL.md
@@ -233,6 +274,12 @@ export default function (pi: ExtensionAPI) {
     const result = await runPrecheck(skill, "", "", ctx.cwd);
     if (result.ok) {
       passed.add(skill.name);
+      if (result.context.trim()) {
+        pendingRead.set(event.toolCallId, {
+          skillName: skill.name,
+          context: result.context,
+        });
+      }
       return;
     }
     ctx.ui.notify(`Skill "${skill.name}" blocked by precheck: ${result.error}`, "error");
@@ -242,8 +289,22 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
+  // Path B (cont.): append the precheck stdout to the Read tool's result so
+  // the model sees it alongside the SKILL.md body it just loaded.
+  pi.on("tool_result", async (event) => {
+    const pending = pendingRead.get(event.toolCallId);
+    if (!pending) return;
+    pendingRead.delete(event.toolCallId);
+    if (event.isError) return;
+    const wrapped = wrapContext(pending.skillName, pending.context);
+    return {
+      content: [...event.content, { type: "text" as const, text: `\n\n${wrapped}` }],
+    };
+  });
+
   // Reset the pass-cache once the agent fully settles
   pi.on("agent_settled", async () => {
     passed.clear();
+    pendingRead.clear();
   });
 }
