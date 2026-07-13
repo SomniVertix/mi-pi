@@ -1,0 +1,8 @@
+{
+  "name": "mi-pi",
+  "version": "0.1.0",
+  "description": "Personal pi extensions",
+  "pi": {
+    "extensions": ["./extensions/skill-precheck.ts"]
+  }
+}
