@@ -100,6 +100,24 @@ function collectSkillFiles(root: string, depth = 0, out: string[] = []): string[
   return out;
 }
 
+function expandUser(p: string): string {
+  if (p === "~") return os.homedir();
+  if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
+  return p;
+}
+
+function readPiSkillsSetting(file: string): string[] {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(file, "utf8"));
+    const list = Array.isArray(cfg.skills) ? cfg.skills : [];
+    return list
+      .filter((p: unknown): p is string => typeof p === "string")
+      .map((p: string) => path.resolve(path.dirname(file), expandUser(p)));
+  } catch {
+    return [];
+  }
+}
+
 function skillRoots(cwd: string): string[] {
   const home = os.homedir();
   const roots = [
@@ -107,6 +125,10 @@ function skillRoots(cwd: string): string[] {
     path.join(home, ".agents", "skills"),
     path.join(cwd, ".pi", "skills"),
   ];
+  // Honor pi's own `skills` setting (user- and project-level settings.json)
+  // so this extension's discovery matches what pi itself surfaces.
+  roots.push(...readPiSkillsSetting(path.join(home, ".pi", "agent", "settings.json")));
+  roots.push(...readPiSkillsSetting(path.join(cwd, ".pi", "settings.json")));
   // .agents/skills in cwd and ancestors, up to git root (or fs root)
   let dir = cwd;
   for (;;) {
