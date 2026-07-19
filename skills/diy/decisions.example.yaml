@@ -1,0 +1,45 @@
+# Example .dot/diy/decisions.yaml
+# See decisions.schema.md in this directory for the full field reference.
+
+- id: data-store
+  category: data-store
+  currentChoice: PostgreSQL
+  whyChosen: |
+    Needed transactional guarantees across the workflow-state and spec tables,
+    plus JSONB for semi-structured document content. Team already ran Postgres
+    in production for other services, so no new operational surface.
+  alternatives:
+    - option: MongoDB
+      tradeoffs: |
+        Easier schema-less iteration early on, but we'd have lost cross-table
+        transactions for workflow-state updates, which happen constantly.
+    - option: SQLite
+      tradeoffs: |
+        Fine for a single-user local tool, but this product runs as a shared
+        server, so file-level locking would become a bottleneck.
+  swapDifficulty: major
+  evidenceLinks:
+    - packages/persistence/src/spec-repository.ts
+  dependsOn: []
+  confidence: verified
+  extra:
+    hostingNote: Managed via the project's own docker-compose.yml today.
+
+- id: deployment-model
+  category: deployment
+  currentChoice: Single Docker container, docker-compose for local dev
+  whyChosen: |
+    Small team, low traffic; a monolith container was simplest to reason
+    about and deploy. Revisit if/when horizontal scaling is needed.
+  alternatives:
+    - option: Kubernetes
+      tradeoffs: |
+        Better horizontal scaling and rolling deploys, but far more
+        operational overhead than this project's traffic justifies today.
+  swapDifficulty: moderate
+  evidenceLinks:
+    - Dockerfile
+    - docker-compose.yml
+  dependsOn:
+    - data-store
+  confidence: inferred

@@ -39,6 +39,32 @@ Details:
 - A per-agent-run pass-cache prevents re-running the script when the model
   reads a `SKILL.md` right after a passing `/skill:` invocation
 
+## Skills
+
+### diy
+
+The `.dot/diy` Standard: a portable mechanism any repo can adopt to give
+people who pull it down a real, interactive walkthrough of the product's key
+architectural decisions — not just static docs, but a live `/diy` session
+that teaches those decisions and lets the person keep or swap each one,
+ending in a portable build brief any AI coding tool can build a fork from.
+
+Two roles use it, at different times:
+
+- **The maintainer** authors or refreshes the decisions catalog
+  (`decisions.yaml`) — the record of what was decided and why. This can be
+  done autonomously via the `diy-cataloger` agent, interactively with
+  guidance, or fully by hand.
+- **The protégé** — someone who pulled the repo down to build their own
+  variant — walks through the catalog and ends up with a `build-brief.yaml`
+  spec-ing what to keep, swap, or revisit.
+
+The files under `skills/diy/` are the mechanism itself: repo-agnostic and
+containing no knowledge of any specific product. They're meant to ship
+unmodified into any adopting repo's `.dot/diy/` directory. See
+[`skills/diy/README.md`](skills/diy/README.md) for the full breakdown and
+setup steps to make `/diy` locally invokable after cloning.
+
 ## Tests
 
 ```bash
