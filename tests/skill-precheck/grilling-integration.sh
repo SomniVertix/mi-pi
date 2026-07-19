@@ -139,8 +139,8 @@ awk -v e="$ELAPSED" 'BEGIN{exit !(e+0 < 25)}' && pass "well under 30s extension 
 # ---------------------------------------------------------------------------
 hdr "6. Artifact structure matches what downstream stages expect"
 # ---------------------------------------------------------------------------
-SLUG=$(ls "$TMP/.relentless/grilling-sessions/" 2>/dev/null | head -1)
-[ -n "$SLUG" ] && pass "session dir created under .relentless/grilling-sessions/" || fail "no session dir"
+SLUG=$(ls "$TMP/.relentless/specs/" 2>/dev/null | head -1)
+[ -n "$SLUG" ] && pass "session dir created under .relentless/specs/" || fail "no session dir"
 info "slug chosen: $SLUG"
 
 if [ "$HAVE_GEMMA" = "1" ]; then
@@ -154,7 +154,7 @@ if [ "$HAVE_GEMMA" = "1" ]; then
   fi
 fi
 
-DECISIONS="$TMP/.relentless/grilling-sessions/$SLUG/decisions.md"
+DECISIONS="$TMP/.relentless/specs/$SLUG/decisions.md"
 [ -f "$DECISIONS" ] && pass "decisions.md written" || fail "decisions.md missing"
 
 grep -q "^# Grilling Session:" "$DECISIONS" && pass "has '# Grilling Session:' header" || fail "header missing"
@@ -201,14 +201,14 @@ OUT2=$(cd "$TMP2" && RELENTLESS_OLLAMA_MODEL=definitely-not-a-real-model bash -c
 RC2=$?
 [ $RC2 -eq 0 ] && pass "script still exits 0 when Ollama fails" || fail "script failed to fall back (rc=$RC2)"
 grep -q "falling back to regex slug" "$STDERR_LOG2" && pass "fallback warning logged to stderr (not stdout)" || fail "no fallback warning in stderr"
-[ -f "$TMP2/.relentless/grilling-sessions/add-dark-mode-toggle-to-settings-page/decisions.md" ] \
+[ -f "$TMP2/.relentless/specs/add-dark-mode-toggle-to-settings-page/decisions.md" ] \
   && pass "regex-slug artifact created" || fail "fallback artifact missing"
 
 # ---------------------------------------------------------------------------
 hdr "9. Duplicate invocation: unique_dir suffix logic"
 # ---------------------------------------------------------------------------
 cd "$TMP2" && RELENTLESS_OLLAMA_MODEL=definitely-not-a-real-model bash -c "echo '$STDIN_JSON2' | python3 '$RESOLVED'" >/dev/null 2>&1
-[ -d "$TMP2/.relentless/grilling-sessions/add-dark-mode-toggle-to-settings-page-2" ] \
+[ -d "$TMP2/.relentless/specs/add-dark-mode-toggle-to-settings-page-2" ] \
   && pass "second run got -2 suffix (no clobber)" || fail "collision handling broken"
 
 # ---------------------------------------------------------------------------
